@@ -6,6 +6,7 @@ import time
 import os
 import tempfile
 import replicate
+import requests
 
 # API Key configuration
 # These should be set as environment variables or Streamlit secrets
@@ -127,6 +128,58 @@ def save_uploaded_file(uploaded_file):
         tmp_file.write(uploaded_file.getvalue())
         return tmp_file.name
 
+def process_api_output(output, content_type="image"):
+    """
+    Process the output from Replicate API.
+    
+    Args:
+        output: The output from Replicate API
+        content_type: Type of content ("image" or "video")
+    
+    Returns:
+        Processed content (PIL Image for images, URL for videos)
+    """
+    try:
+        if content_type == "image":
+            # Handle different output formats
+            if isinstance(output, str):
+                # If it's a URL, download the image
+                response = requests.get(output)
+                response.raise_for_status()
+                image = Image.open(io.BytesIO(response.content))
+                return image
+            elif isinstance(output, list) and len(output) > 0:
+                # If it's a list, take the first item
+                url = str(output[0])
+                response = requests.get(url)
+                response.raise_for_status()
+                image = Image.open(io.BytesIO(response.content))
+                return image
+            elif hasattr(output, 'url'):
+                # If it has a URL attribute
+                response = requests.get(output.url)
+                response.raise_for_status()
+                image = Image.open(io.BytesIO(response.content))
+                return image
+            else:
+                st.error(f"Unexpected output format: {type(output)}")
+                return None
+        else:
+            # For video, return the URL or first item
+            if isinstance(output, str):
+                return output
+            elif isinstance(output, list) and len(output) > 0:
+                return str(output[0])
+            elif hasattr(output, 'url'):
+                return output.url
+            else:
+                st.error(f"Unexpected output format: {type(output)}")
+                return None
+                
+    except Exception as e:
+        st.error(f"Error processing API output: {str(e)}")
+        return None
+
 def generate_banner(text, image_path, aspect_ratio="vertical"):
     """
     Generate a banner using Replicate API.
@@ -154,7 +207,7 @@ def generate_banner(text, image_path, aspect_ratio="vertical"):
         
         # Open the image file
         with open(image_path, "rb") as image_file:
-            status_text.text("Calling Replicate API...")
+            status_text.text("Calling AI Agent...")
             progress_bar.progress(30)
             
             # Call Replicate API for banner generation
@@ -172,6 +225,9 @@ def generate_banner(text, image_path, aspect_ratio="vertical"):
             progress_bar.progress(90)
             status_text.text("Processing results...")
             
+        # Process the API output
+        processed_output = process_api_output(output, "image")
+        
         progress_bar.progress(100)
         status_text.text("Banner generation complete!")
         
@@ -180,7 +236,7 @@ def generate_banner(text, image_path, aspect_ratio="vertical"):
         progress_bar.empty()
         status_text.empty()
         
-        return output
+        return processed_output
         
     except Exception as e:
         st.error(f"Error generating banner: {str(e)}")
@@ -216,7 +272,7 @@ def generate_short_form_video(text, image_path):
         
         # Open the image file
         with open(image_path, "rb") as image_file:
-            status_text.text("Calling Replicate API...")
+            status_text.text("Calling AI Agent...")
             progress_bar.progress(30)
             
             # Call Replicate API for short-form video generation
@@ -233,6 +289,9 @@ def generate_short_form_video(text, image_path):
             progress_bar.progress(90)
             status_text.text("Processing results...")
             
+        # Process the API output
+        processed_output = process_api_output(output, "video")
+        
         progress_bar.progress(100)
         status_text.text("Video generation complete!")
         
@@ -241,7 +300,7 @@ def generate_short_form_video(text, image_path):
         progress_bar.empty()
         status_text.empty()
         
-        return output
+        return processed_output
         
     except Exception as e:
         st.error(f"Error generating video: {str(e)}")
@@ -277,7 +336,7 @@ def edit_image(text, image_path):
         
         # Open the image file
         with open(image_path, "rb") as image_file:
-            status_text.text("Calling Replicate API...")
+            status_text.text("Calling AI Agent...")
             progress_bar.progress(30)
             
             # Call Replicate API for image editing
@@ -294,6 +353,9 @@ def edit_image(text, image_path):
             progress_bar.progress(90)
             status_text.text("Processing results...")
             
+        # Process the API output
+        processed_output = process_api_output(output, "image")
+        
         progress_bar.progress(100)
         status_text.text("Image editing complete!")
         
@@ -302,7 +364,7 @@ def edit_image(text, image_path):
         progress_bar.empty()
         status_text.empty()
         
-        return output
+        return processed_output
         
     except Exception as e:
         st.error(f"Error editing image: {str(e)}")
@@ -433,8 +495,8 @@ with left_col:
                 # Store in session state if generation was successful
                 if generated_content is not None:
                     st.session_state[f'left_generated_{output_type}'] = generated_content
-                    st.session_state['left_aspect_ratio'] = aspect_key
-                    st.session_state['left_content_type'] = content_type
+                    st.session_state['left_generated_aspect_ratio'] = aspect_key
+                    st.session_state['left_generated_content_type'] = content_type
                     st.success(f"✨ {content_type} generated successfully!")
                 else:
                     st.error(f"Failed to generate {content_type.lower() if content_type else 'content'}. Please try again.")
@@ -453,7 +515,7 @@ with left_col:
     # Display generated banner
     if 'left_generated_banner' in st.session_state:
         st.markdown("**Generated Banner:**")
-        st.image(st.session_state['left_generated_banner'], caption=f"Banner ({st.session_state.get('left_aspect_ratio', 'square')} aspect ratio)", use_column_width=True)
+        st.image(st.session_state['left_generated_banner'], caption=f"Banner ({st.session_state.get('left_generated_aspect_ratio', 'square')} aspect ratio)", use_container_width=True)
         
         # Download button for banner
         img_buffer = io.BytesIO()
@@ -463,7 +525,7 @@ with left_col:
         st.download_button(
             label="📥 Download Banner",
             data=img_bytes,
-            file_name=f"banner_{st.session_state.get('left_aspect_ratio', 'square')}.png",
+            file_name=f"banner_{st.session_state.get('left_generated_aspect_ratio', 'square')}.png",
             mime="image/png",
             key="left_download_banner"
         )
@@ -472,30 +534,35 @@ with left_col:
     elif 'left_generated_video' in st.session_state:
         st.markdown("**Generated Short-form Video:**")
         
-        # Video placeholder with controls
-        st.info(f"🎥 Video generated ({st.session_state.get('left_aspect_ratio', 'square')} aspect ratio)")
+        # Get the video URL
+        video_url = st.session_state['left_generated_video']
         
-        # Demo video with play/stop controls
-        video_url = "https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4"
-        st.video(video_url)
+        # Display video info
+        st.info(f"🎥 Video generated ({st.session_state.get('left_generated_aspect_ratio', 'square')} aspect ratio)")
         
-        # Video control buttons
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("▶️ Play", key="play_video"):
-                st.success("Video playing...")
-        with col2:
-            if st.button("⏹️ Stop", key="stop_video"):
-                st.info("Video stopped")
-        
-        # Download button for video
-        st.download_button(
-            label="📥 Download Video",
-            data=b"video_placeholder_data",  # In real app, use actual video data
-            file_name=f"video_{st.session_state.get('left_aspect_ratio', 'square')}.mp4",
-            mime="video/mp4",
-            key="left_download_video"
-        )
+        if video_url:
+            # Display the actual generated video
+            st.video(video_url)
+            
+            # Download button for video
+            try:
+                # Try to get video data for download
+                response = requests.get(video_url)
+                response.raise_for_status()
+                video_data = response.content
+                
+                st.download_button(
+                    label="📥 Download Video",
+                    data=video_data,
+                    file_name=f"video_{st.session_state.get('left_generated_aspect_ratio', 'square')}.mp4",
+                    mime="video/mp4",
+                    key="left_download_video"
+                )
+            except Exception as e:
+                st.warning(f"Could not prepare video for download: {str(e)}")
+                st.markdown(f"**Direct Link**: [Download Video]({video_url})")
+        else:
+            st.error("Video URL not available")
     
     else:
         st.info("👆 Generate content above to see results here")
@@ -570,7 +637,7 @@ with right_col:
     # Display edited image
     if 'right_edited_image' in st.session_state:
         st.markdown("**Edited Image:**")
-        st.image(st.session_state['right_edited_image'], caption="Edited Image", use_column_width=True)
+        st.image(st.session_state['right_edited_image'], caption="Edited Image", use_container_width=True)
         
         # Download button for edited image
         img_buffer = io.BytesIO()
